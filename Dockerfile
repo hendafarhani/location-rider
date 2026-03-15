@@ -1,13 +1,15 @@
-# Stage 1: Build the app
-FROM maven:3.9.6-eclipse-temurin-17 AS builder
+FROM eclipse-temurin:25-jdk AS builder
 WORKDIR /app
-COPY pom.xml .
-RUN mvn dependency:go-offline
-COPY src ./src
-RUN mvn clean package -DskipTests
 
-# Stage 2: Run the app
-FROM openjdk:17
+COPY .mvn/ .mvn/
+COPY mvnw pom.xml ./
+RUN chmod +x mvnw
+
+RUN ./mvnw dependency:go-offline
+COPY src ./src
+RUN ./mvnw clean package -DskipTests
+
+FROM eclipse-temurin:25-jre
 WORKDIR /app
 COPY --from=builder /app/target/*.jar app.jar
 ENTRYPOINT ["java", "-jar", "app.jar"]
