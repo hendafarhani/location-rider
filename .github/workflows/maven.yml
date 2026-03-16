@@ -1,4 +1,4 @@
-name: Build Ride Request
+name: Build Location Rider
 
 on:
   push:
