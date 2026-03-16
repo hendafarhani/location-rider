@@ -1,8 +1,8 @@
-name: Sonar Ride Request
+name: Sonar Location Rider
 
 on:
   workflow_run:
-    workflows: ["Build Ride Request"]
+    workflows: ["Build Location Rider"]
     types: [completed]
 
 jobs:
@@ -27,6 +27,6 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: >
           mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
-          -Dsonar.projectKey=henda_ride-request
+          -Dsonar.projectKey=henda_location-rider
           -Dsonar.organization=henda
           -Dsonar.host.url=https://sonarcloud.io
