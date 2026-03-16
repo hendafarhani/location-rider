@@ -1,0 +1,32 @@
+name: Sonar Ride Request
+
+on:
+  workflow_run:
+    workflows: ["Build Ride Request"]
+    types: [completed]
+
+jobs:
+  sonar:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      - name: Sonar scan
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: >
+          mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
+          -Dsonar.projectKey=henda_ride-request
+          -Dsonar.organization=henda
+          -Dsonar.host.url=https://sonarcloud.io
