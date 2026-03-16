@@ -21,7 +21,10 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: maven
-
+          
+      - name: Build project
+        run: mvn -B clean verify
+        
       - name: Sonar scan
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
