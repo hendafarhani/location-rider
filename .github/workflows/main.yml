@@ -8,28 +8,10 @@ on:
 jobs:
   sonar:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.workflow_run.head_sha }}
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 21
-          cache: maven
-          
-      - name: Build project
-        run: mvn -B clean verify
-        
-      - name: Sonar scan
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: >
-          mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
-          -Dsonar.projectKey=hendafarhani_location-rider
-          -Dsonar.organization=hendafarhani
-          -Dsonar.host.url=https://sonarcloud.io
+    uses: hendafarhani/github-actions-workflows/.github/workflows/sonar.yml@main
+    with:
+      java_version: "21"
+      sonar_project_key: "hendafarhani_location-rider"
+      sonar_organization: "hendafarhani"
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
