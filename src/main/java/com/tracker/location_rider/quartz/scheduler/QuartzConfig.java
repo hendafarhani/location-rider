@@ -5,8 +5,9 @@ import lombok.RequiredArgsConstructor;
 import org.quartz.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 
 @RequiredArgsConstructor
 @Configuration
@@ -16,9 +17,8 @@ public class QuartzConfig {
 
     private final Scheduler scheduler;
 
-    @Bean
-    public Scheduler scheduler() throws SchedulerException {
-
+    @EventListener(ApplicationReadyEvent.class)
+    public void scheduleRiderLocationJob() throws SchedulerException {
         // Static metadata available to the job during execution.
         JobDataMap jobDataMap = new JobDataMap();
         jobDataMap.put("jobID", "Job-1");
@@ -48,7 +48,6 @@ public class QuartzConfig {
             } else {
                 log.debug("Quartz scheduler already running");
             }
-            return scheduler;
         } catch (SchedulerException ex) {
             log.error("Failed to schedule/start Quartz job '{}'", jobDetail.getKey(), ex);
             throw ex;

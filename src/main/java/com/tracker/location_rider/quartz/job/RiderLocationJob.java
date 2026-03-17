@@ -1,7 +1,9 @@
 package com.tracker.location_rider.quartz.job;
 
+import com.tracker.location_rider.entity.RiderEntity;
 import com.tracker.location_rider.model.Location;
 import com.tracker.location_rider.model.RiderData;
+import com.tracker.location_rider.repository.RiderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.quartz.Job;
@@ -10,7 +12,10 @@ import org.quartz.JobExecutionException;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
-import java.util.*;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Quartz job that simulates rider location updates and publishes them to Kafka.
@@ -28,11 +33,8 @@ public class RiderLocationJob implements Job {
     private static final double MIN_LON = -0.489;
     private static final double MAX_LON = 0.236;
 
-    // Number of simulated riders to track
-    private static final int RIDER_COUNT = 10;
-
-    // In-memory storage for rider data (shared across job executions)
-    private static final List<RiderData> riders = new ArrayList<>();
+    // In-memory storage for rider positions (shared across job executions)
+    private static final Map<String, Location> riderPositions = new ConcurrentHashMap<>();
 
     // Random number generator for simulating movement
     private static final Random random = new Random();
@@ -42,28 +44,7 @@ public class RiderLocationJob implements Job {
 
     // Kafka template for publishing messages
     private final KafkaTemplate<String, Object> kafkaTemplate;
-
-    static {
-        log.info("Initializing {} simulated riders within London boundaries", RIDER_COUNT);
-
-        // Initialize riders with random positions within London boundaries
-        for (int i = 1; i <= RIDER_COUNT; i++) {
-            double latitude = MIN_LAT + (MAX_LAT - MIN_LAT) * random.nextDouble();
-            double longitude = MIN_LON + (MAX_LON - MIN_LON) * random.nextDouble();
-
-            riders.add(RiderData.builder()
-                    .identifier("Id" + i)
-                    .location(Location.builder()
-                            .latitude(latitude)
-                            .longitude(longitude)
-                            .build())
-                    .build());
-
-            log.debug("Initialized rider Id{} at position [{}, {}]", i, latitude, longitude);
-        }
-
-        log.info("Successfully initialized all {} riders", RIDER_COUNT);
-    }
+    private final RiderRepository riderRepository;
 
     /**
      * Executes the scheduled job to update and publish rider locations.
@@ -77,12 +58,28 @@ public class RiderLocationJob implements Job {
      */
     @Override
     public void execute(JobExecutionContext jobExecutionContext) throws JobExecutionException {
+        List<RiderEntity> riders = riderRepository.findAll();
+        if (riders.isEmpty()) {
+            log.warn("No riders found in MySQL. Location simulation skipped.");
+            return;
+        }
+
         log.info("Starting rider location update job - processing {} riders", riders.size());
         int successCount = 0;
         int errorCount = 0;
 
-        for (RiderData riderData : riders) {
+        for (RiderEntity riderEntity : riders) {
             try {
+                Location currentLocation = riderPositions.computeIfAbsent(
+                        riderEntity.getIdentifier(),
+                        identifier -> randomLondonLocation()
+                );
+                RiderData riderData = RiderData.builder()
+                        .identifier(riderEntity.getIdentifier())
+                        .userName(riderEntity.getName())
+                        .location(currentLocation)
+                        .build();
+
                 // Store original position for logging
                 double originalLat = riderData.getLocation().getLatitude();
                 double originalLon = riderData.getLocation().getLongitude();
@@ -142,12 +139,19 @@ public class RiderLocationJob implements Job {
             } catch (Exception e) {
                 errorCount++;
                 log.error("Error processing location update for rider {}: {}",
-                        riderData.getIdentifier(), e.getMessage(), e);
-                throw new JobExecutionException("Error publishing to Kafka for rider " + riderData.getIdentifier(), e);
+                        riderEntity.getIdentifier(), e.getMessage(), e);
+                throw new JobExecutionException("Error publishing to Kafka for rider " + riderEntity.getIdentifier(), e);
             }
         }
 
         log.info("Rider location update job completed - Success: {}, Errors: {}", successCount, errorCount);
+    }
+
+    private Location randomLondonLocation() {
+        return Location.builder()
+                .latitude(MIN_LAT + (MAX_LAT - MIN_LAT) * random.nextDouble())
+                .longitude(MIN_LON + (MAX_LON - MIN_LON) * random.nextDouble())
+                .build();
     }
 
 }
