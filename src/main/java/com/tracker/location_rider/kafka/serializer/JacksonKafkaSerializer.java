@@ -12,7 +12,7 @@ import java.util.Map;
 /**
  * Minimal Jackson-backed serializer used until KafkaJsonSerializer becomes available in Spring Kafka.
  */
-public final class JacksonKafkaSerializer implements Serializer<Object> {
+public final class JacksonKafkaSerializer<T> implements Serializer<T> {
 
     private final ObjectMapper objectMapper;
 
