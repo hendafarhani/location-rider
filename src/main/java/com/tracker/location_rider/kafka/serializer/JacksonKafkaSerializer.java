@@ -7,6 +7,7 @@ import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.serialization.Serializer;
 import org.springframework.util.Assert;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -29,7 +30,7 @@ public final class JacksonKafkaSerializer<T> implements Serializer<T> {
     @Override
     public byte[] serialize(String topic, Headers headers, Object data) {
         if (data == null) {
-            return null;
+            return new byte[]{};
         }
         try {
             return objectMapper.writeValueAsBytes(data);
