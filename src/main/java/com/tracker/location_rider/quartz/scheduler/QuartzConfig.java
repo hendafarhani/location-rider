@@ -11,7 +11,6 @@ import org.springframework.context.event.EventListener;
 
 import jakarta.annotation.PreDestroy;
 import java.util.List;
-import java.util.Objects;
 
 @RequiredArgsConstructor
 @Configuration
