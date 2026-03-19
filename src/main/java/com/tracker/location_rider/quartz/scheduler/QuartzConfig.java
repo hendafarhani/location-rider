@@ -11,6 +11,7 @@ import org.springframework.context.event.EventListener;
 
 import jakarta.annotation.PreDestroy;
 import java.util.List;
+import java.util.Objects;
 
 @RequiredArgsConstructor
 @Configuration
@@ -24,20 +25,7 @@ public class QuartzConfig {
 
     @EventListener(ApplicationReadyEvent.class)
     public void scheduleRiderLocationJob() throws SchedulerException {
-        List<JobRegistration> registrations = buildJobRegistrations();
-
-        for (JobRegistration registration : registrations) {
-            try {
-                log.info("Scheduling Quartz job '{}' with trigger '{}'",
-                        registration.jobDetail().getKey(), registration.trigger().getKey());
-                scheduler.scheduleJob(registration.jobDetail(), registration.trigger());
-            } catch (SchedulerException ex) {
-                String message = "Failed to schedule/start Quartz job '%s' with trigger '%s'"
-                        .formatted(registration.jobDetail().getKey(), registration.trigger().getKey());
-                log.error(message, ex);
-            }
-        }
-
+        buildJobRegistrations().forEach(this::scheduleJobSafely);
         startSchedulerIfNeeded();
         logSchedulerStatus();
     }
@@ -51,6 +39,18 @@ public class QuartzConfig {
         return configs.stream()
                 .map(this::toRegistration)
                 .toList();
+    }
+
+    private void scheduleJobSafely(JobRegistration registration) {
+        try {
+            log.info("Scheduling Quartz job '{}' with trigger '{}'",
+                    registration.jobDetail().getKey(), registration.trigger().getKey());
+            scheduler.scheduleJob(registration.jobDetail(), registration.trigger());
+        } catch (SchedulerException ex) {
+            String message = "Failed to schedule/start Quartz job '%s' with trigger '%s'"
+                    .formatted(registration.jobDetail().getKey(), registration.trigger().getKey());
+            log.error(message, ex);
+        }
     }
 
     private JobRegistration toRegistration(QuartzScheduleProperties.JobConfig jobConfig) {
