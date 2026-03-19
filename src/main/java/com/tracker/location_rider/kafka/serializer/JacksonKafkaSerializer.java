@@ -7,7 +7,6 @@ import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.serialization.Serializer;
 import org.springframework.util.Assert;
 
-import java.util.List;
 import java.util.Map;
 
 /**

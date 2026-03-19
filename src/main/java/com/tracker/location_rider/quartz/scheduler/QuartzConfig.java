@@ -35,7 +35,6 @@ public class QuartzConfig {
                 String message = "Failed to schedule/start Quartz job '%s' with trigger '%s'"
                         .formatted(registration.jobDetail().getKey(), registration.trigger().getKey());
                 log.error(message, ex);
-                throw new SchedulerException(message, ex);
             }
         }
 
