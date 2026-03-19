@@ -5,6 +5,7 @@ import com.tracker.location_rider.model.Location;
 import com.tracker.location_rider.model.RiderData;
 import com.tracker.location_rider.repository.RiderRepository;
 import com.tracker.location_rider.service.RiderLocationService;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -40,10 +41,9 @@ public class RiderLocationServiceImpl implements RiderLocationService {
         }
 
         log.info("Starting rider location update job - processing {} riders", riders.size());
-        int successCount = riders.stream()
-                .map(this::sendRiderLocation)
-                .mapToInt(success -> success ? 1 : 0)
-                .sum();
+        int successCount = Math.toIntExact(riders.stream()
+                .filter(this::sendRiderLocation)
+                .count());
 
         log.info("Rider location update job completed - Success: {}, Errors: {}",
                 successCount,
@@ -57,6 +57,10 @@ public class RiderLocationServiceImpl implements RiderLocationService {
             log.debug("Successfully published location for rider {} to Kafka topic '{}'",
                     riderData.getIdentifier(), RIDE_LOCATION_TOPIC);
             return true;
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            log.warn("Publishing interrupted for rider {}", riderEntity.getIdentifier(), ie);
+            return false;
         } catch (Exception ex) {
             log.error("Error processing location update for rider {}: {}",
                     riderEntity.getIdentifier(), ex.getMessage(), ex);
