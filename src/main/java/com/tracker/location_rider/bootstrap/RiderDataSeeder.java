@@ -4,6 +4,7 @@ import com.tracker.location_rider.entity.RiderEntity;
 import com.tracker.location_rider.repository.RiderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.NonNull;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
@@ -19,7 +20,7 @@ public class RiderDataSeeder implements ApplicationRunner {
     private final RiderRepository riderRepository;
 
     @Override
-    public void run(ApplicationArguments args) {
+    public void run(@NonNull ApplicationArguments args) {
         if (riderRepository.count() > 0) {
             log.info("Rider table already contains data, skipping seed");
             return;
