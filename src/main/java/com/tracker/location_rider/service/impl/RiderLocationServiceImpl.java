@@ -5,7 +5,6 @@ import com.tracker.location_rider.model.Location;
 import com.tracker.location_rider.model.RiderData;
 import com.tracker.location_rider.repository.RiderRepository;
 import com.tracker.location_rider.service.RiderLocationService;
-import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -42,7 +41,14 @@ public class RiderLocationServiceImpl implements RiderLocationService {
 
         log.info("Starting rider location update job - processing {} riders", riders.size());
         int successCount = Math.toIntExact(riders.stream()
-                .filter(this::sendRiderLocation)
+                .filter(rider ->
+                {
+                    boolean success = sendRiderLocation(rider);
+                    if (!success) {
+                        log.warn("Failed to publish location for rider {}", rider.getIdentifier());
+                    }
+                    return success;
+                })
                 .count());
 
         log.info("Rider location update job completed - Success: {}, Errors: {}",
@@ -110,13 +116,16 @@ public class RiderLocationServiceImpl implements RiderLocationService {
     }
 
     private Location clampToBounds(Location location) {
-        double boundedLat = Math.max(MIN_LAT, Math.min(MAX_LAT, location.getLatitude()));
-        double boundedLon = Math.max(MIN_LON, Math.min(MAX_LON, location.getLongitude()));
+
+        double boundedLat = Math.clamp(location.getLatitude(), MIN_LAT, MAX_LAT);
+        double boundedLon = Math.clamp(location.getLongitude(), MIN_LON, MAX_LON);
+
         return Location.builder()
                 .latitude(boundedLat)
                 .longitude(boundedLon)
                 .build();
     }
+
 
     private Location randomLondonLocation() {
         return Location.builder()
