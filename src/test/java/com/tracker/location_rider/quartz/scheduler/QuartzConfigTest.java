@@ -28,7 +28,7 @@ class QuartzConfigTest {
     private QuartzConfig config;
 
     @BeforeEach
-    void setUp() throws SchedulerException {
+    void setUp() {
         properties = new QuartzScheduleProperties();
         config = new QuartzConfig(scheduler, properties);
     }
