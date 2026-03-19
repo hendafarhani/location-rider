@@ -15,6 +15,7 @@ import org.springframework.kafka.support.SendResult;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
@@ -74,6 +75,27 @@ class RiderLocationServiceImplTest {
         CompletableFuture<SendResult<String, RiderData>> future = new CompletableFuture<>();
         future.completeExceptionally(new RuntimeException("Kafka unavailable"));
         doReturn(future).when(kafkaTemplate).send(eq("rider.location"), any(RiderData.class));
+
+        assertThatCode(() -> service.publishLatestLocations()).doesNotThrowAnyException();
+        verify(kafkaTemplate).send(eq("rider.location"), any(RiderData.class));
+    }
+
+    @Test void shouldRestoreInterruptStatusWhenKafkaSendInterrupted() {
+        when(riderRepository.findAll()).thenReturn(List.of(rider));
+
+        CompletableFuture<RiderData> interruptedFuture = new CompletableFuture<>() {
+            @Override
+            public RiderData get() throws InterruptedException {
+                throw new InterruptedException("forced-interrupt");
+            }
+
+            @Override
+            public RiderData get(long timeout, TimeUnit unit) throws InterruptedException {
+                throw new InterruptedException("forced-interrupt");
+            }
+        };
+
+        doReturn(interruptedFuture).when(kafkaTemplate).send(eq("rider.location"), any(RiderData.class));
 
         assertThatCode(() -> service.publishLatestLocations()).doesNotThrowAnyException();
         verify(kafkaTemplate).send(eq("rider.location"), any(RiderData.class));
