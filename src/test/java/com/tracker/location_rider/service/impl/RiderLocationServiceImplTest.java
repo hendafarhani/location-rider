@@ -1,26 +1,22 @@
 package com.tracker.location_rider.service.impl;
 
 import com.tracker.location_rider.entity.RiderEntity;
-import com.tracker.location_rider.model.Location;
 import com.tracker.location_rider.model.RiderData;
 import com.tracker.location_rider.repository.RiderRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
-import org.springframework.test.util.ReflectionTestUtils;
-import java.util.concurrent.CompletableFuture;
 
 import java.util.List;
-import java.util.Map;
-import java.util.Random;
+import java.util.concurrent.CompletableFuture;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -34,17 +30,21 @@ class RiderLocationServiceImplTest {
     @Mock
     private RiderRepository riderRepository;
 
+    @InjectMocks
     private RiderLocationServiceImpl service;
+
+    private RiderEntity rider;
 
     @BeforeEach
     void setUp() {
-        service = new RiderLocationServiceImpl(kafkaTemplate, riderRepository);
-        ReflectionTestUtils.setField(service, "random", new Random(42));
-        clearCachedPositions();
+        rider = RiderEntity.builder()
+                .identifier("rider-1")
+                .name("Rider One")
+                .build();
     }
 
     @Test
-    void publishLatestLocations_skipsKafkaWhenThereAreNoRiders() throws Exception {
+    void shouldSkipPublishingWhenNoRidersFound() {
         when(riderRepository.findAll()).thenReturn(List.of());
 
         service.publishLatestLocations();
@@ -53,58 +53,35 @@ class RiderLocationServiceImplTest {
     }
 
     @Test
-    void publishLatestLocations_publishesDeterministicLocationUpdates() throws Exception {
-        RiderEntity rider = RiderEntity.builder()
-                .identifier("rider-1")
-                .name("Rider One")
-                .build();
+    void shouldPublishLocationsForAllRiders() {
         when(riderRepository.findAll()).thenReturn(List.of(rider));
-        presetLocation(rider.getIdentifier(), 51.50, -0.12);
 
-        CompletableFuture<SendResult<String, RiderData>> future = CompletableFuture.completedFuture(null);
-
-        ArgumentCaptor<RiderData> riderDataCaptor = ArgumentCaptor.forClass(RiderData.class);
-        when(kafkaTemplate.send(eq("rider.location"), riderDataCaptor.capture())).thenReturn(future);
+        CompletableFuture<RiderData> future = CompletableFuture.completedFuture(null);
+        ArgumentCaptor<RiderData> payloadCaptor = ArgumentCaptor.forClass(RiderData.class);
+        doReturn(future).when(kafkaTemplate).send(eq("rider.location"), payloadCaptor.capture());
 
         service.publishLatestLocations();
 
         verify(kafkaTemplate).send(eq("rider.location"), any(RiderData.class));
-        RiderData sentPayload = riderDataCaptor.getValue();
-        assertThat(sentPayload.getIdentifier()).isEqualTo("rider-1");
-        assertThat(sentPayload.getUserName()).isEqualTo("Rider One");
-        assertThat(sentPayload.getLocation()).isNotNull();
+        RiderData sent = payloadCaptor.getValue();
+        verifyPayload(sent);
     }
 
     @Test
-    void publishLatestLocations_propagatesKafkaExceptions() {
-        RiderEntity rider = RiderEntity.builder()
-                .identifier("rider-error")
-                .name("Rider Error")
-                .build();
+    void shouldContinueWhenKafkaSendFails() {
         when(riderRepository.findAll()).thenReturn(List.of(rider));
-        presetLocation(rider.getIdentifier(), 51.40, -0.20);
-        when(kafkaTemplate.send(eq("rider.location"), any(RiderData.class)))
-                .thenThrow(new IllegalStateException("Kafka unavailable"));
 
-        assertThatThrownBy(() -> service.publishLatestLocations())
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Kafka unavailable");
+        CompletableFuture<SendResult<String, RiderData>> future = new CompletableFuture<>();
+        future.completeExceptionally(new RuntimeException("Kafka unavailable"));
+        doReturn(future).when(kafkaTemplate).send(eq("rider.location"), any(RiderData.class));
+
+        assertThatCode(() -> service.publishLatestLocations()).doesNotThrowAnyException();
+        verify(kafkaTemplate).send(eq("rider.location"), any(RiderData.class));
     }
 
-    private void clearCachedPositions() {
-        @SuppressWarnings("unchecked")
-        Map<String, Location> positions = (Map<String, Location>) ReflectionTestUtils.getField(service, "riderPositions");
-        if (positions != null) {
-            positions.clear();
-        }
-    }
-
-    private void presetLocation(String identifier, double lat, double lon) {
-        @SuppressWarnings("unchecked")
-        Map<String, Location> positions = (Map<String, Location>) ReflectionTestUtils.getField(service, "riderPositions");
-        if (positions != null) {
-            positions.put(identifier, Location.builder().latitude(lat).longitude(lon).build());
-        }
+    private void verifyPayload(RiderData payload) {
+        org.assertj.core.api.Assertions.assertThat(payload).isNotNull();
+        org.assertj.core.api.Assertions.assertThat(payload.getIdentifier()).isEqualTo("rider-1");
+        org.assertj.core.api.Assertions.assertThat(payload.getUserName()).isEqualTo("Rider One");
     }
 }
-

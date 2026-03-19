@@ -32,7 +32,7 @@ public class RiderLocationServiceImpl implements RiderLocationService {
     private final Map<String, Location> riderPositions = new ConcurrentHashMap<>();
     private final Random random = new Random();
 
-    public void publishLatestLocations() throws Exception {
+    public void publishLatestLocations() {
         List<RiderEntity> riders = riderRepository.findAll();
         if (riders.isEmpty()) {
             log.warn("No riders found in MySQL. Location simulation skipped.");
@@ -40,37 +40,37 @@ public class RiderLocationServiceImpl implements RiderLocationService {
         }
 
         log.info("Starting rider location update job - processing {} riders", riders.size());
-        int successCount = 0;
-
-        for (RiderEntity riderEntity : riders) {
-            successCount += handleRider(riderEntity);
-        }
+        int successCount = riders.stream()
+                .map(this::sendRiderLocation)
+                .mapToInt(success -> success ? 1 : 0)
+                .sum();
 
         log.info("Rider location update job completed - Success: {}, Errors: {}",
                 successCount,
                 riders.size() - successCount);
     }
 
-    private int handleRider(RiderEntity riderEntity) throws Exception {
+    private boolean sendRiderLocation(RiderEntity riderEntity) {
         try {
-            RiderData riderData = RiderData.builder()
-                    .identifier(riderEntity.getIdentifier())
-                    .userName(riderEntity.getName())
-                    .location(currentLocationFor(riderEntity))
-                    .build();
-
-            applyRandomMovement(riderData);
-            enforceBoundaries(riderData);
-
+            RiderData riderData = buildRiderData(riderEntity);
             kafkaTemplate.send(RIDE_LOCATION_TOPIC, riderData).get();
             log.debug("Successfully published location for rider {} to Kafka topic '{}'",
                     riderData.getIdentifier(), RIDE_LOCATION_TOPIC);
-            return 1;
+            return true;
         } catch (Exception ex) {
             log.error("Error processing location update for rider {}: {}",
                     riderEntity.getIdentifier(), ex.getMessage(), ex);
-            throw ex;
+            return false;
         }
+    }
+
+    private RiderData buildRiderData(RiderEntity riderEntity) {
+        Location nextLocation = nextBoundedLocation(riderEntity);
+        return RiderData.builder()
+                .identifier(riderEntity.getIdentifier())
+                .userName(riderEntity.getName())
+                .location(nextLocation)
+                .build();
     }
 
     private Location currentLocationFor(RiderEntity riderEntity) {
@@ -80,34 +80,38 @@ public class RiderLocationServiceImpl implements RiderLocationService {
         );
     }
 
-    private void applyRandomMovement(RiderData riderData) {
+    private Location nextBoundedLocation(RiderEntity riderEntity) {
+        Location current = currentLocationFor(riderEntity);
+        Location moved = applyRandomMovement(current, riderEntity.getIdentifier());
+        Location bounded = clampToBounds(moved);
+        riderPositions.put(riderEntity.getIdentifier(), bounded);
+        return bounded;
+    }
+
+    private Location applyRandomMovement(Location current, String riderIdentifier) {
         double latChange = (random.nextDouble() - 0.5) * 0.01;
         double lonChange = (random.nextDouble() - 0.5) * 0.01;
 
         log.debug("Rider {} moving from [{}, {}] by delta [{}, {}]",
-                riderData.getIdentifier(),
-                riderData.getLocation().getLatitude(),
-                riderData.getLocation().getLongitude(),
+                riderIdentifier,
+                current.getLatitude(),
+                current.getLongitude(),
                 latChange,
                 lonChange);
 
-        riderData.moveRandomly(latChange, lonChange);
+        return Location.builder()
+                .latitude(current.getLatitude() + latChange)
+                .longitude(current.getLongitude() + lonChange)
+                .build();
     }
 
-    private void enforceBoundaries(RiderData riderData) {
-        Location location = riderData.getLocation();
-
-        if (location.getLatitude() < MIN_LAT) {
-            riderData.moveRandomly(MIN_LAT - location.getLatitude(), 0);
-        } else if (location.getLatitude() > MAX_LAT) {
-            riderData.moveRandomly(MAX_LAT - location.getLatitude(), 0);
-        }
-
-        if (location.getLongitude() < MIN_LON) {
-            riderData.moveRandomly(0, MIN_LON - location.getLongitude());
-        } else if (location.getLongitude() > MAX_LON) {
-            riderData.moveRandomly(0, MAX_LON - location.getLongitude());
-        }
+    private Location clampToBounds(Location location) {
+        double boundedLat = Math.max(MIN_LAT, Math.min(MAX_LAT, location.getLatitude()));
+        double boundedLon = Math.max(MIN_LON, Math.min(MAX_LON, location.getLongitude()));
+        return Location.builder()
+                .latitude(boundedLat)
+                .longitude(boundedLon)
+                .build();
     }
 
     private Location randomLondonLocation() {
