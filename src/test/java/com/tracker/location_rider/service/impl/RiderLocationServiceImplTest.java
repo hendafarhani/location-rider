@@ -7,7 +7,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -31,13 +30,14 @@ class RiderLocationServiceImplTest {
     @Mock
     private RiderRepository riderRepository;
 
-    @InjectMocks
     private RiderLocationServiceImpl service;
 
     private RiderEntity rider;
+    private static final String RIDER_LOCATION_TOPIC = "rider.location";
 
     @BeforeEach
     void setUp() {
+        service = new RiderLocationServiceImpl(kafkaTemplate, riderRepository, RIDER_LOCATION_TOPIC);
         rider = RiderEntity.builder()
                 .identifier("rider-1")
                 .name("Rider One")
@@ -57,13 +57,15 @@ class RiderLocationServiceImplTest {
     void shouldPublishLocationsForAllRiders() {
         when(riderRepository.findAll()).thenReturn(List.of(rider));
 
-        CompletableFuture<RiderData> future = CompletableFuture.completedFuture(null);
+        CompletableFuture<SendResult<String, RiderData>> future = CompletableFuture.completedFuture(null);
+        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<RiderData> payloadCaptor = ArgumentCaptor.forClass(RiderData.class);
-        doReturn(future).when(kafkaTemplate).send(eq("rider.location"), payloadCaptor.capture());
+        doReturn(future).when(kafkaTemplate).send(eq(RIDER_LOCATION_TOPIC), keyCaptor.capture(), payloadCaptor.capture());
 
         service.publishLatestLocations();
 
-        verify(kafkaTemplate).send(eq("rider.location"), any(RiderData.class));
+        verify(kafkaTemplate).send(eq(RIDER_LOCATION_TOPIC), eq("rider-1"), any(RiderData.class));
+        org.assertj.core.api.Assertions.assertThat(keyCaptor.getValue()).isEqualTo("rider-1");
         RiderData sent = payloadCaptor.getValue();
         verifyPayload(sent);
     }
@@ -74,31 +76,31 @@ class RiderLocationServiceImplTest {
 
         CompletableFuture<SendResult<String, RiderData>> future = new CompletableFuture<>();
         future.completeExceptionally(new RuntimeException("Kafka unavailable"));
-        doReturn(future).when(kafkaTemplate).send(eq("rider.location"), any(RiderData.class));
+        doReturn(future).when(kafkaTemplate).send(eq(RIDER_LOCATION_TOPIC), eq("rider-1"), any(RiderData.class));
 
         assertThatCode(() -> service.publishLatestLocations()).doesNotThrowAnyException();
-        verify(kafkaTemplate).send(eq("rider.location"), any(RiderData.class));
+        verify(kafkaTemplate).send(eq(RIDER_LOCATION_TOPIC), eq("rider-1"), any(RiderData.class));
     }
 
     @Test void shouldRestoreInterruptStatusWhenKafkaSendInterrupted() {
         when(riderRepository.findAll()).thenReturn(List.of(rider));
 
-        CompletableFuture<RiderData> interruptedFuture = new CompletableFuture<>() {
+        CompletableFuture<SendResult<String, RiderData>> interruptedFuture = new CompletableFuture<>() {
             @Override
-            public RiderData get() throws InterruptedException {
+            public SendResult<String, RiderData> get() throws InterruptedException {
                 throw new InterruptedException("forced-interrupt");
             }
 
             @Override
-            public RiderData get(long timeout, TimeUnit unit) throws InterruptedException {
+            public SendResult<String, RiderData> get(long timeout, TimeUnit unit) throws InterruptedException {
                 throw new InterruptedException("forced-interrupt");
             }
         };
 
-        doReturn(interruptedFuture).when(kafkaTemplate).send(eq("rider.location"), any(RiderData.class));
+        doReturn(interruptedFuture).when(kafkaTemplate).send(eq(RIDER_LOCATION_TOPIC), eq("rider-1"), any(RiderData.class));
 
         assertThatCode(() -> service.publishLatestLocations()).doesNotThrowAnyException();
-        verify(kafkaTemplate).send(eq("rider.location"), any(RiderData.class));
+        verify(kafkaTemplate).send(eq(RIDER_LOCATION_TOPIC), eq("rider-1"), any(RiderData.class));
     }
 
     private void verifyPayload(RiderData payload) {
