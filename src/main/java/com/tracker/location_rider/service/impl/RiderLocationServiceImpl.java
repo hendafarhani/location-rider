@@ -5,8 +5,8 @@ import com.tracker.location_rider.model.Location;
 import com.tracker.location_rider.model.RiderData;
 import com.tracker.location_rider.repository.RiderRepository;
 import com.tracker.location_rider.service.RiderLocationService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
@@ -17,61 +17,101 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class RiderLocationServiceImpl implements RiderLocationService {
 
     private static final double MIN_LAT = 51.28;
     private static final double MAX_LAT = 51.72;
     private static final double MIN_LON = -0.489;
     private static final double MAX_LON = 0.236;
-    private static final String RIDE_LOCATION_TOPIC = "rider.location";
 
     private final KafkaTemplate<String, RiderData> kafkaTemplate;
     private final RiderRepository riderRepository;
+    private final String riderLocationTopic;
+
+    public RiderLocationServiceImpl(
+            KafkaTemplate<String, RiderData> kafkaTemplate,
+            RiderRepository riderRepository,
+            @Value("${kafka.topics.rider-location}") String riderLocationTopic) {
+        this.kafkaTemplate = kafkaTemplate;
+        this.riderRepository = riderRepository;
+        this.riderLocationTopic = riderLocationTopic;
+    }
 
     private final Map<String, Location> riderPositions = new ConcurrentHashMap<>();
     private final Random random = new Random();
 
     public void publishLatestLocations() {
         List<RiderEntity> riders = riderRepository.findAll();
-        if (riders.isEmpty()) {
-            log.warn("No riders found in MySQL. Location simulation skipped.");
+        if (shouldSkipLocationPublishing(riders)) {
             return;
         }
 
-        log.info("Starting rider location update job - processing {} riders", riders.size());
-        int successCount = Math.toIntExact(riders.stream()
-                .filter(rider ->
-                {
-                    boolean success = sendRiderLocation(rider);
-                    if (!success) {
-                        log.warn("Failed to publish location for rider {}", rider.getIdentifier());
-                    }
-                    return success;
-                })
-                .count());
-
-        log.info("Rider location update job completed - Success: {}, Errors: {}",
-                successCount,
-                riders.size() - successCount);
+        logLocationPublishingStarted(riders);
+        PublishSummary summary = publishLocationsFor(riders);
+        logLocationPublishingCompleted(summary);
     }
 
-    private boolean sendRiderLocation(RiderEntity riderEntity) {
-        try {
-            RiderData riderData = buildRiderData(riderEntity);
-            kafkaTemplate.send(RIDE_LOCATION_TOPIC, riderData).get();
-            log.debug("Successfully published location for rider {} to Kafka topic '{}'",
-                    riderData.getIdentifier(), RIDE_LOCATION_TOPIC);
-            return true;
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-            log.warn("Publishing interrupted for rider {}", riderEntity.getIdentifier(), ie);
-            return false;
-        } catch (Exception ex) {
-            log.error("Error processing location update for rider {}: {}",
-                    riderEntity.getIdentifier(), ex.getMessage(), ex);
+    private boolean shouldSkipLocationPublishing(List<RiderEntity> riders) {
+        if (!riders.isEmpty()) {
             return false;
         }
+        log.warn("No riders found in MySQL. Location simulation skipped.");
+        return true;
+    }
+
+    private void logLocationPublishingStarted(List<RiderEntity> riders) {
+        log.info("Starting rider location update job - processing {} riders", riders.size());
+    }
+
+    private PublishSummary publishLocationsFor(List<RiderEntity> riders) {
+        int successCount = 0;
+        for (RiderEntity rider : riders) {
+            if (publishLocationFor(rider)) {
+                successCount++;
+            }
+        }
+        return new PublishSummary(riders.size(), successCount);
+    }
+
+    private void logLocationPublishingCompleted(PublishSummary summary) {
+        log.info("Rider location update job completed - Success: {}, Errors: {}",
+                summary.successCount(),
+                summary.errorCount());
+    }
+
+    private boolean publishLocationFor(RiderEntity rider) {
+        try {
+            RiderData riderData = buildRiderData(rider);
+            publishToKafka(riderData);
+            logSuccessfulPublish(riderData);
+            return true;
+        } catch (InterruptedException ie) {
+            handleInterruptedPublish(rider, ie);
+            return false;
+        } catch (Exception ex) {
+            handleFailedPublish(rider, ex);
+            return false;
+        }
+    }
+
+    private void publishToKafka(RiderData riderData) throws Exception {
+        kafkaTemplate.send(riderLocationTopic, riderData.getIdentifier(), riderData).get();
+    }
+
+    private void logSuccessfulPublish(RiderData riderData) {
+        log.debug("Successfully published location for rider {} to Kafka topic '{}'",
+                riderData.getIdentifier(), riderLocationTopic);
+    }
+
+    private void handleInterruptedPublish(RiderEntity rider, InterruptedException exception) {
+        Thread.currentThread().interrupt();
+        log.warn("Publishing interrupted for rider {}", rider.getIdentifier(), exception);
+    }
+
+    private void handleFailedPublish(RiderEntity rider, Exception exception) {
+        log.error("Error processing location update for rider {}: {}",
+                rider.getIdentifier(), exception.getMessage(), exception);
+        log.warn("Failed to publish location for rider {}", rider.getIdentifier());
     }
 
     private RiderData buildRiderData(RiderEntity riderEntity) {
@@ -132,5 +172,12 @@ public class RiderLocationServiceImpl implements RiderLocationService {
                 .latitude(MIN_LAT + (MAX_LAT - MIN_LAT) * random.nextDouble())
                 .longitude(MIN_LON + (MAX_LON - MIN_LON) * random.nextDouble())
                 .build();
+    }
+
+    private record PublishSummary(int totalCount, int successCount) {
+
+        int errorCount() {
+            return totalCount - successCount;
+        }
     }
 }
